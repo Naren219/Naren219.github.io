@@ -2,3 +2,7 @@ body {
     font-family: Helvetica;
     font-size: 14px;
 }
+
+#content li {
+    margin-bottom: 0.7em;
+  }
