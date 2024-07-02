@@ -5,4 +5,10 @@ body {
 
 #content li {
     margin-bottom: 0.7em;
+}
+
+#menu ul {
+    list-style-type: none;
+    margin: 0;
+    padding: 0;
   }
