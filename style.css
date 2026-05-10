@@ -29,3 +29,19 @@ h1 {
 h2 {
   font-size: 1rem;
 }
+.layout-default::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: url("/assets/images/wave.png");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: cover;
+  opacity: 0.06;
+}
+
+@media print {
+  body::before { display: none; }
+}
