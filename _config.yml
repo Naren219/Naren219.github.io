@@ -1,0 +1,8 @@
+title: Naren Manikandan
+description: Personal site
+url: https://naren219.github.io
+permalink: /blog/:title/
+plugins:
+  - jekyll-feed
+exclude:
+  - README.md

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page.title }}{% unless page.url == "/" %} · naren{% endunless %}</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="icon" type="image/x-icon" href="/assets/images/favicon.ico">
+  <link rel="alternate" type="application/rss+xml" title="RSS" href="/feed.xml">
+</head>
+<body>
+  <nav>
+    <a href="/">home</a>·
+    <a href="/blog">blog</a>·
+    <a href="/quotes">quotes</a>
+    <a href="/questions">questions</a>
+  </nav>
+  <main>
+    {{ content }}
+  </main>
+</body>
+</html>
