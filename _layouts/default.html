@@ -8,6 +8,13 @@
   <link rel="stylesheet" href="/assets/css/syntax.css">
   <link rel="icon" type="image/x-icon" href="/assets/images/favicon.ico">
   <link rel="alternate" type="application/rss+xml" title="RSS" href="/feed.xml">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+    onload="renderMathInElement(document.body, {delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '$', right: '$', display: false}
+    ]});"></script>
 </head>
 <body class="layout-{{ page.layout }} {{ page.body_class }}">
   <nav>

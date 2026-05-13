@@ -16,39 +16,26 @@ We have a well-defined task: given inputs and weights of another, smaller neural
 
 ### Architecture
 
-To keep things concise, we'll define two layers with ReLU activations for our data generator. We can easily pass in weight tensors and evaluate any input.
+To keep things concise, we'll define two layers with a ReLU activation for our data generator. We can easily pass in weight tensors and evaluate any input.
 
 ```py
 def get_mlp_out(x, w1, w2):
-  y1 = nn.ReLU()(x @ w1)
-  y2 = nn.ReLU()(y1 @ w2)
-  return y2
+  y1 = F.relu(x @ w1)
+  return y1 @ w2
 ```
 
 The predictor net has two network variations we'll compare. 
 
 ```py
 class XLinear(nn.Module):
-  def __init__(self, concat_features=17):
-    super().__init__()
-
-    hidden_dims = [256, 512, 512, 256, 128]
-    layers = []
-    in_dim = concat_features
-    for hidden_dim in hidden_dims:
-      layers.append(nn.Linear(in_dim, hidden_dim))
-      in_dim = hidden_dim + in_dim
-
-    self.layers = nn.ModuleList(layers)
-    self.out = nn.Linear(in_dim, 1)
-
   def forward(self, x):
-    out = x
-    for layer in self.layers:
-      out = F.relu(layer(out))
-      out = torch.cat((out, x), dim=1)
+    h = x
 
-    return self.out(out)
+    for layer in layers:
+      h = activation(layer(h))
+      h = concat(h, x)  # reattach original input each time
+
+    return output_layer(h)
 ```
 
 `XLinear` has strength over a plain Linear network because the generator input and weights that we concatenate at each layer can skip information bottlenecks from previous hidden layers.
@@ -57,46 +44,23 @@ To provide even more scaffolding, we'll also look at `ResLinear` (it doesn't act
 
 ```py
 class ResBlock(nn.Module):
-  def __init__(self, in_dim, out_dim):
-    super().__init__()
-    self.net = nn.Sequential(
-      nn.Linear(in_dim, out_dim),
-      nn.BatchNorm1d(out_dim),
-      nn.ReLU(),
-      nn.Linear(out_dim, out_dim),
-      nn.BatchNorm1d(out_dim),
-    )
-    if in_dim != out_dim:
-        self.skip = nn.Linear(in_dim, out_dim)
-    else:
-        self.skip = nn.Identity()
-
   def forward(self, x):
-    return F.relu(self.net(x) + self.skip(x))
+    return activation(main_path(x) + skip_path(x))
+
 
 class ResLinear(nn.Module):
-  def __init__(self, concat_features = 17, 
-                hidden_dim = 256, out_dim = 1):
-    super().__init__()
-    self.l1 = nn.Linear(concat_features, hidden_dim)
-    self.res2 = ResBlock(hidden_dim, hidden_dim)
-    self.res3 = ResBlock(hidden_dim, hidden_dim)
-    self.res4 = ResBlock(hidden_dim, hidden_dim)
-    self.l5 = nn.Linear(hidden_dim, out_dim)
-
   def forward(self, x):
-    x = F.relu((self.l1(x)))
-    x = self.res2(x)
-    x = self.res3(x)
-    x = self.res4(x)
-    return self.l5(x)
+    x = input_layer(x)
+    x = res_block(x)
+    x = res_block(x)
+    return output_layer(x)
 ```
 
 The x samples are the concatenation of the generator net's input and weight tensors and the y samples are the evaluated output (using `get_mlp_out`).
 
 ### Results
 
-After training with a batch_size of 1024 and 50000 training steps, we get the following (note: all the loss curves below use exponential moving average to smooth out the noise).
+After training with a batch size of 1024 and 50000 training steps, we get the following (note: all the loss curves below use exponential moving average to smooth out the noise).
 
 ![Comparing XLinear to Linear]({{ page.asset_path }}xlin-comp.png)
 
@@ -104,7 +68,7 @@ The concatenation technique did work! But `ResLinear` did even better.
 
 ![Comparing XLinear to ResLinear]({{ page.asset_path }}xvsres.png)
 
-Looking at the tail of this graph, we see that we've reached almost 0 loss (as expected)! This loss can't be memorization since we sample fresh generator inputs and weights at each batch.
+By the end of the training run, we reach a loss of 0.017! This loss can't be memorization since we sample fresh generator inputs and weights at each batch.
 
 ---
 ## Part II
@@ -128,10 +92,7 @@ def get_simple_data(num_unknowns, num_pairs):
     pairs.append(x)
     pairs.append(y)
 
-  inp = torch.cat(tuple(pairs), dim=1)
-  out = w.flatten(1)
-
-  return inp, out
+  # ...
 ```
 
 Using this data generator, we should expect that our model (we used `ResLinear`) should perform better when given more equations (`num_pairs`) than unknowns (`num_unknowns`) since the system is overdetermined. So we try this out:
@@ -157,12 +118,12 @@ def get_data_v2(num_pairs):
     pairs.append(y)
 
   inp = torch.cat(tuple(pairs), 1)
-  return inp, (w1, w2)
+  # ...
 ```
 
-Training sequence:
+Training loop:
 ```py
-optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 loss = nn.MSELoss()
 
 for i in t:
@@ -185,9 +146,9 @@ for i in t:
   output.backward()
   optimizer.step()
 ```
-We naively apply the same model to this task. However, the key modifications in the training procedure were:
-1. The loss isn't computed between the predicted and actual weights. Doing such would make the training incredibly inefficient since there are many valid weight tensors that can implement the same function and we don't need the exact sequence of them.
-2. The loss is computed between the true y -- which is outputted from our generator net -- and predicted y -- which is the result of running a newly-sampled eval x sample through the predicted weights.
+We naively apply the same model to this task. However, there are key modifications to the training procedure:
+1. The loss isn't computed between the predicted and actual weights. Doing such would make the training incredibly inefficient since there are many valid weight tensors that can implement the same function and we don't need the exact sequence of them. Essentially, we're optimizing for **functional equivalence**.
+2. The loss is computed between the true y -- which is outputted from our generator net -- and predicted y -- which is the result of running a newly-sampled eval x sample through the predicted weights. This is a Monte Carlo estimate of the expected error over the entire input distribution. 
 
 Turns out, despite having 2x the equations as unknowns, loss doesn't decrease at all. A few reasons why:
 1. Since we blindly smush the xy pairs into a 1D list in `get_data_v2`, we don't give the model any inductive biases about the groupings of values. This makes learning the I/O mappings an uphill battle.
@@ -219,7 +180,7 @@ Now, we have a pair encoder that transforms a concatenated x and y into an embed
 
 ```py
 class WeightPredictor(nn.Module):
-  def __init__(self, x_dim, y_dim, out_dim, embed_dim=128):
+  def __init__(self, x_dim, y_dim, out_dim, embed_dim):
     super().__init__()
     self.encoder = PairEncoder(x_dim, y_dim, embed_dim)
     self.decoder = nn.Sequential(
@@ -240,18 +201,32 @@ class WeightPredictor(nn.Module):
 
 Finally, we decode these embeddings into the weights.
 
+For all the training runs below, we use a learning rate of `1e-3` and Lecun weight initialization for the data generator (I didn't do either in the first iteration and that was a huge mistake). Our embedding dimension has size 128.
+
 ### Results
-Following the same paradigm of predicting weights from the train input and using a new eval x to make a y prediction, we get this graph where we try predicting 15 unknowns from the weight layer using 20, 30, and 45 equations.
+Following the same paradigm of predicting weights from the train input and using a new eval x to make a y prediction, we get this graph where we try predicting 15 unknowns from the weight layer using 20, 30, and 45 equations. 
 
 ![Predicting 15 unknowns from 20, 30, and 45 eqns]({{ page.asset_path }}15-vars-test.png)
 
-Cool results -- our new method works! Jumping from 20 -> 30 equations is helping the loss a lot, but with 45 equations, we don't see any improvement at all. The network is likely saturated by this point as the extra 15 equations are redundant.
-
-Let's scale up the weights of the generator model and see if we get the same trend.
+Cool results -- our new method works! The loss goes down to 0.005 for the 45 equation curve and only a bit more for the other two plots. Let's scale up the weights of the generator model and see if we get the same trend.
 
 ![Predicting 50 unknowns from 67 (🤷‍♂️), 100, and 150 eqns]({{ page.asset_path }}50-vars-test.png)
 
-I followed the same scaling factors as before: x1.33, x2, and x3, but with 50 unknowns instead. And wow...with more weights, the number of pairs you give doesn't matter. All converges to the same loss of ~0.25. This means the bottleneck shifted from sample count to the predictor architecture: decoder may lack capacity, embedding size too small, or some other optimization difficulty. Each of these are future directions of inquiry.
+I followed the same scaling factors as before: x1.33, x2, and x3, but with 50 unknowns instead. To compare, let's use $R^2$, the fraction of variance explained by the model.
+
+{::nomarkdown}
+$$
+\begin{array}{c|cc}
+\text{Equations / Unknowns} & \text{15 unknowns} & \text{50 unknowns} \\
+\hline
+1.33\times & 98.3\% & 91.7\% \\
+2\times & 98.6\% & 93.6\% \\
+3\times & 99.0\% & 93.8\%
+\end{array}
+$$
+{:/}
+
+We see that with more unknowns, the problem is genuinely harder per-unit-of-variance, with 5-6% less explained variance at each ratio. Also, there's saturation from 2x to 3x the equations for the 50 unknowns problem but we still see improvements with the 15 unknowns counterpart. One possible hypothesis for this behavior is the embedding layer bottleneck: the `PairEncoder` tries collapsing all pairs into a 128-dim vector. With more unknowns, the same fixed vector needs to hold more information. Furthermore, mean pooling throws away the spread and correlations between pairs which do actually matter -- switching to attention pooling could make a huge difference.
 
 ### Discussion
 
